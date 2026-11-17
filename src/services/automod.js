@@ -19,6 +19,15 @@ function isStaff(message, config) {
     message.member?.permissions.has(PermissionFlagsBits.Administrator) ||
     (config.staffRoleId && message.member?.roles.cache.has(config.staffRoleId));
 }
+// Use the ticket marker written by this bot, not the channel name/category.
+// A ticket can be moved to another category without losing this exception.
+function isTicketConversation(channel) {
+  const context = channel?.isThread?.() ? channel.parent : channel;
+  const topic = typeof context?.topic === 'string' ? context.topic : '';
+  return /^\s*BML ticket\s*\|/i.test(topic) &&
+    /(?:^|\|)\s*owner=\d{17,20}\s*(?:\||$)/i.test(topic) &&
+    /(?:^|\|)\s*type=[a-z0-9_-]+\s*(?:\||$)/i.test(topic);
+}
 function findLinks(content) {
   // URLs com protocolo, www, convites Discord e domínios comuns sem protocolo.
   const re = /(?:https?:\/\/|www\.|discord\.gg\/|discord(?:app)?\.com\/invite\/)[^\s<>]+|\b(?:[a-z0-9-]+\.)+(?:com|net|org|gg|io|br|dev|app|xyz|me|link|site|info|tv|co|shop)(?:\/[^\s<>]*)?/gi;
@@ -75,7 +84,7 @@ export async function handleAutoModMessage(message, config) {
 
   let reason = '';
   let targets = [message];
-  if (opts.links) {
+  if (opts.links && !isTicketConversation(message.channel)) {
     const links = findLinks(message.content);
     const unauthorized = links.find(link => {
       const host = domainOf(link);
