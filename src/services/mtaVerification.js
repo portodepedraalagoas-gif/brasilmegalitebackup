@@ -1,3 +1,4 @@
+import { verificationNickname } from './verificationNickname.js';
 
 import { randomInt } from 'node:crypto';
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
@@ -69,7 +70,7 @@ export function getMtaLink(account) {
   return locked(() => database.links[account] || null);
 }
 
-export function createMtaCode(account) {
+export function createMtaCode(account, playerID) {
   return locked(() => {
     if (
       typeof account !== 'string' ||
@@ -84,9 +85,14 @@ export function createMtaCode(account) {
       return { verified: true };
     }
 
+    if (!Number.isSafeInteger(playerID) || playerID < 1 || playerID > 999999999) {
+      throw new Error('ID do TAB ausente ou inválido na solicitação do MTA.');
+    }
+
     const current = database.tokens[account];
 
     if (current && current.expires > now()) {
+      current.playerID = playerID;
       return {
         verified: false,
         token: current.code,
@@ -112,7 +118,7 @@ export function createMtaCode(account) {
 
     const expires = now() + TOKEN_TTL;
 
-    database.tokens[account] = { code, expires };
+    database.tokens[account] = { code, expires, playerID };
 
     return {
       verified: false,
@@ -124,7 +130,7 @@ export function createMtaCode(account) {
 
 // grantRole é uma função async que entrega o cargo no Discord.
 // O vínculo só é salvo depois que essa função terminar sem erro.
-export function confirmMtaCode(code, discordId, grantRole) {
+export function confirmMtaCode(code, discordId, grantRole, displayName) {
   return locked(async () => {
     const id = String(discordId);
     const normalized = String(code).trim();
@@ -191,12 +197,16 @@ export function confirmMtaCode(code, discordId, grantRole) {
       );
     }
 
-    await grantRole();
+    const playerID = entry[1].playerID;
+    const nickname = verificationNickname(displayName, playerID);
+    await grantRole({ nickname, playerID });
 
     const nextLinks = {
       ...database.links,
       [account]: {
         discordId: id,
+        displayName: displayName.trim(),
+        playerID,
         verified: true,
         updated: now()
       }
@@ -210,6 +220,8 @@ export function confirmMtaCode(code, discordId, grantRole) {
 
     return {
       account,
+      nickname,
+      playerID,
       verified: true
     };
   });
