@@ -167,7 +167,9 @@ async function handleMtaStatus(req, res) {
       return;
     }
 
-    const result = await createMtaCode(account);
+    const playerID = Number(data.playerID);
+    // O ID vem apenas da requisição autenticada do MTA, nunca do formulário Discord.
+    const result = await createMtaCode(account, playerID);
 
     sendJson(res, 200, result);
   } catch (error) {
