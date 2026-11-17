@@ -1933,6 +1933,15 @@ if (
         .setCustomId('bml_verify_modal')
         .setTitle('Verificação Brasil Mega Lite');
 
+      const nameField = new TextInputBuilder()
+        .setCustomId('bml_verify_name')
+        .setLabel('Nome do personagem')
+        .setPlaceholder('Ex.: Joao Silva')
+        .setStyle(TextInputStyle.Short)
+        .setMinLength(2)
+        .setMaxLength(32)
+        .setRequired(true);
+
       const field = new TextInputBuilder()
         .setCustomId('bml_verify_code')
         .setLabel('Código de 6 números do MTA')
@@ -1942,7 +1951,10 @@ if (
         .setMaxLength(6)
         .setRequired(true);
 
-      modal.addComponents(new ActionRowBuilder().addComponents(field));
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(nameField),
+        new ActionRowBuilder().addComponents(field)
+      );
       await interaction.showModal(modal);
       return;
     }
@@ -1956,6 +1968,8 @@ if (
         return;
       }
 
+      const characterName = interaction.fields.getTextInputValue('bml_verify_name').trim();
+      // Nome recebido para a próxima etapa; nesta fase a verificação continua pelo código.
       const code = interaction.fields.getTextInputValue('bml_verify_code').trim();
       if (!/^\d{6}$/.test(code)) {
         await interaction.reply({
