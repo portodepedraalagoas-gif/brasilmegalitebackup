@@ -1,3 +1,6 @@
+import * as sugestao from './commands/sugestao.js';
+import { handleSuggestionInteraction } from './services/suggestions.js';
+import { startVIPRoleSync } from './services/mtaVIPRoles.js';
 import {
   Client,
   Collection,
@@ -57,6 +60,7 @@ await startTranscriptWebServer();
 // ==========================================
 
 const commandModules = [
+  sugestao,
   status,
   players,
   ip,
@@ -163,6 +167,7 @@ client.once(
       `✅ Bot conectado como ${client.user.tag}`
     );
 
+    startVIPRoleSync(client, config.guildId);
     await updatePresence();
 
     setInterval(
@@ -259,6 +264,8 @@ client.on(
   'interactionCreate',
   async interaction => {
 
+
+    if (await handleSuggestionInteraction(interaction)) return;
 
     // Painel AutoMod (sem interferir nos tickets)
     if (await handleAutoModInteraction(interaction, config)) return;

@@ -1,3 +1,5 @@
+import { EventEmitter } from 'node:events';
+export const mtaLinkEvents = new EventEmitter();
 import { verificationNickname } from './verificationNickname.js';
 
 import { randomInt } from 'node:crypto';
@@ -217,6 +219,7 @@ export function confirmMtaCode(code, discordId, grantRole, displayName) {
     database.links = nextLinks;
     delete database.tokens[account];
     attempts.delete(id);
+    mtaLinkEvents.emit('changed', account);
 
     return {
       account,
@@ -250,6 +253,7 @@ export function revokeMtaDiscord(discordId) {
 
     await save(nextLinks);
     database.links = nextLinks;
+    mtaLinkEvents.emit('changed', account);
 
     return account;
   });
