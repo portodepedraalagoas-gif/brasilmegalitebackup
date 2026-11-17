@@ -48,6 +48,7 @@ import * as desbanirmta from './commands/desbanirmta.js';
 import { handleAutoModMessage, handleAutoModInteraction } from './services/automod.js';
 import { startTranscriptWebServer } from './services/transcriptWeb.js';
 import { confirmMtaCode } from './services/mtaVerification.js';
+import { updateVerificationNickname } from './services/verificationNickname.js';
 validateConfig();
 await startTranscriptWebServer();
 
@@ -2012,14 +2013,18 @@ if (
         }
 
         
-      const result = await confirmMtaCode(code, userId, async () => {
-      await member.roles.add(role, 'Verificação de conta MTA Brasil Mega Lite');
-});
+      let nicknameWarning = '';
+      const result = await confirmMtaCode(code, userId, async ({ nickname }) => {
+        if (!member.roles.cache.has(role.id)) {
+          await member.roles.add(role, 'Verificação de conta MTA Brasil Mega Lite');
+        }
+        nicknameWarning = await updateVerificationNickname(member, nickname);
+      }, characterName);
 
-
-        await interaction.editReply({
-          content: `✅ Conta MTA **${result.account}** vinculada! Cargo **${role.name}** entregue. 🦊`
-        });
+      await interaction.editReply({
+        content: `✅ Conta MTA **${result.account}** vinculada! Cargo **${role.name}** entregue. 🦊\nApelido: **${result.nickname}**` +
+          (nicknameWarning ? `\n⚠️ ${nicknameWarning}` : '')
+      });
       } catch (error) {
         console.error('Verificação MTA por modal:', error);
         await interaction.editReply({
