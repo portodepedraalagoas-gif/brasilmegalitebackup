@@ -6,6 +6,7 @@ const DATA_FILE = process.env.AUTOMOD_DATA_FILE || path.resolve('data/automod.js
 const defaults = { flood: true, links: true, spam: true, allowedDomains: [], floodCount: 6, floodWindowMs: 6000, spamCount: 3, spamWindowMs: 15000 };
 let settings = {};
 try { settings = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); } catch {}
+const LINK_ALLOWED_CHANNEL_IDS = new Set(['1556003922949312652', '1556004139106836703']);
 const history = new Map();
 const warnings = new Map();
 const offenses = new Map();
@@ -84,7 +85,7 @@ export async function handleAutoModMessage(message, config) {
 
   let reason = '';
   let targets = [message];
-  if (opts.links && !isTicketConversation(message.channel)) {
+  if (opts.links && !LINK_ALLOWED_CHANNEL_IDS.has(message.channelId || message.channel?.id) && !isTicketConversation(message.channel)) {
     const links = findLinks(message.content);
     const unauthorized = links.find(link => {
       const host = domainOf(link);
