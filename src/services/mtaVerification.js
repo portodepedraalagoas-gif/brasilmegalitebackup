@@ -6,7 +6,8 @@ import { randomInt } from 'node:crypto';
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import path from 'node:path';
 
-const DATA_DIR = process.env.MTA_VERIFY_DIR || '/data/verification';
+import { verificationDirectory, reportVerificationStorage } from './verificationStorage.js';
+const DATA_DIR = verificationDirectory;
 const FILE = path.join(DATA_DIR, 'links.json');
 const TOKEN_TTL = 10 * 60;
 const MAX_ATTEMPTS = 5;
@@ -27,6 +28,12 @@ async function save(links) {
     mode: 0o600
   });
   await rename(temporary, FILE);
+  // A falha da cópia não pode desfazer uma confirmação já gravada.
+  try {
+    const backup = `${FILE}.${process.pid}.bak.tmp`;
+    await writeFile(backup, JSON.stringify({ links }), { encoding: 'utf8', mode: 0o600 });
+    await rename(backup, `${FILE}.bak`);
+  } catch (error) { console.error('[BML Verificação] Falha ao atualizar cópia de segurança:', error.message); }
 }
 
 export async function initMtaVerification() {
@@ -34,22 +41,26 @@ export async function initMtaVerification() {
 
   await mkdir(DATA_DIR, { recursive: true });
 
-  try {
-    const loaded = JSON.parse(await readFile(FILE, 'utf8'));
-
-    if (
-      !loaded ||
-      typeof loaded.links !== 'object' ||
-      Array.isArray(loaded.links) ||
-      !loaded.links
-    ) {
-      throw new Error('Arquivo de vínculos inválido.');
+  let loadedLinks;
+  let primaryError;
+  for (const candidate of [FILE, `${FILE}.bak`]) {
+    try {
+      const loaded = JSON.parse(await readFile(candidate, 'utf8'));
+      if (!loaded || !loaded.links || typeof loaded.links !== 'object' || Array.isArray(loaded.links)) {
+        throw new Error('Arquivo de vínculos inválido.');
+      }
+      loadedLinks = loaded.links;
+      if (candidate !== FILE) console.warn('[BML Verificação] Vínculos recuperados da cópia de segurança.');
+      break;
+    } catch (error) {
+      if (candidate === FILE) primaryError = error;
+      else if (error.code !== 'ENOENT' || primaryError?.code !== 'ENOENT') {
+        throw new Error('Não foi possível ler os vínculos. Os arquivos foram preservados; restaure o backup.', { cause: primaryError });
+      }
     }
-
-    database.links = loaded.links;
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error;
   }
+  database.links = loadedLinks || {};
+  reportVerificationStorage(Object.keys(database.links).length);
 
   database.tokens = {};
   await save(database.links);
@@ -84,7 +95,7 @@ export function createMtaCode(account, playerID) {
     }
 
     if (database.links[account]?.verified) {
-      return { verified: true };
+      return { verified: true, reason: 'verified' };
     }
 
     if (!Number.isSafeInteger(playerID) || playerID < 1 || playerID > 999999999) {
@@ -97,6 +108,7 @@ export function createMtaCode(account, playerID) {
       current.playerID = playerID;
       return {
         verified: false,
+        reason: database.links[account] ? 'revoked' : 'not_linked',
         token: current.code,
         expires: current.expires
       };
@@ -124,6 +136,7 @@ export function createMtaCode(account, playerID) {
 
     return {
       verified: false,
+      reason: database.links[account] ? 'revoked' : 'not_linked',
       token: code,
       expires
     };
