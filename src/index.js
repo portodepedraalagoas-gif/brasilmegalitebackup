@@ -2115,3 +2115,4 @@ await registerCommands();
 await client.login(
   config.token
 );
+
