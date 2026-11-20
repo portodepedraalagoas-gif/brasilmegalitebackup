@@ -102,7 +102,9 @@ export async function publishSuggestion(interaction, input) {
     }
     const timestamp = Math.floor(now / 1000);
     const safeIdea = idea.replace(/([\\`*_~|>\[\]#])/g, '\\$1');
-    message = await channel.send({ allowedMentions: noPings, embeds: [{
+    // Publique os botões junto com o texto: não dependem de uma edição posterior.
+    const state = { guildId: interaction.guildId, channelId, votes: {} };
+    message = await channel.send({ allowedMentions: noPings, components: voteRow(state.votes), embeds: [{
       color: 0xb15cff,
       title: 'Nova sugestão',
       description: `Enviada por <@${interaction.user.id}> · <t:${timestamp}:f>\n\n${safeIdea}`,
@@ -110,11 +112,14 @@ export async function publishSuggestion(interaction, input) {
       fields: [{ name: 'Status', value: 'Aguardando análise' }],
       footer: { text: 'Brasil Mega Lite • Vote abaixo e converse no tópico.' }
     }] });
-    thread = await message.startThread({ name: `Sugestão · ${message.id}`, autoArchiveDuration: 1440 });
-    const state = { guildId: interaction.guildId, channelId, votes: {} };
-    await save(message.id, state);
+    await serialized(message.id, () => save(message.id, state));
     saved = true;
-    await message.edit({ components: voteRow(state.votes), allowedMentions: noPings });
+    // O tópico é auxiliar. Uma falha nele não pode apagar uma votação válida.
+    try {
+      thread = await message.startThread({ name: `Sugestão · ${message.id}`, autoArchiveDuration: 1440 });
+    } catch (error) {
+      console.error('[Sugestões] Votação publicada, mas não foi possível criar o tópico:', error.code || error.message);
+    }
   } catch (error) {
     if (cooldowns.get(userKey) === deadline) cooldowns.delete(userKey);
     if (saved) await rm(fileFor(message.id), { force: true }).catch(() => {});
@@ -126,7 +131,57 @@ export async function publishSuggestion(interaction, input) {
     else await interaction.reply({ ...privateReply, content }).catch(() => {});
     return;
   }
-  await interaction.editReply({ content: `✅ Sua sugestão foi publicada em <#${channelId}>. [Ver sugestão](${message.url}) · [Abrir tópico](${thread.url})` }).catch(() => {});
+  const discussion = thread ? ` · [Abrir tópico](${thread.url})` : ' O tópico de conversa está indisponível, mas a votação está funcionando.';
+  await interaction.editReply({ content: `✅ Sua sugestão foi publicada em <#${channelId}>. [Ver sugestão](${message.url})${discussion}` }).catch(() => {});
+}
+
+export async function repairSuggestion(interaction, staffRoleId, reference) {
+  const roles = interaction.member?.roles;
+  const hasStaffRole = staffRoleId && (Array.isArray(roles)
+    ? roles.includes(staffRoleId) : roles?.cache.has(staffRoleId));
+  if (!interaction.inGuild() || (!hasStaffRole && !interaction.memberPermissions?.has('Administrator'))) {
+    return interaction.reply({ ...privateReply, content: 'Apenas a staff pode restaurar os botões de sugestões.' });
+  }
+  const value = reference.trim();
+  const link = /^https:\/\/(?:www\.|canary\.|ptb\.)?discord\.com\/channels\/(\d{17,20})\/(\d{17,20})\/(\d{17,20})\/?$/.exec(value);
+  const channelId = process.env.SUGGESTIONS_CHANNEL_ID?.trim();
+  const messageId = link?.[3] ?? value;
+  if (!idPattern.test(channelId || '') || !idPattern.test(messageId) ||
+      (link && (link[1] !== interaction.guildId || link[2] !== channelId))) {
+    return interaction.reply({ ...privateReply, content: 'Informe o link ou ID da mensagem original no canal de sugestões deste servidor.' });
+  }
+  await interaction.deferReply(privateReply);
+  try {
+    const result = await serialized(messageId, async () => {
+      const channel = await interaction.guild.channels.fetch(channelId);
+      if (channel?.guildId !== interaction.guildId || !channel.messages) return 'O canal de sugestões está indisponível.';
+      const message = await channel.messages.fetch(messageId);
+      const embed = message.embeds?.[0];
+      if (message.author?.id !== interaction.client.user.id || embed?.title !== 'Nova sugestão' ||
+          embed.footer?.text !== 'Brasil Mega Lite • Vote abaixo e converse no tópico.') {
+        return 'Selecione a mensagem original de uma sugestão publicada por este bot.';
+      }
+      let state = await readState(messageId);
+      if (state && (state.guildId !== interaction.guildId || state.channelId !== channelId)) {
+        return 'Os dados dessa votação pertencem a outro canal ou servidor.';
+      }
+      const recovered = !state;
+      if (!state) {
+        // Não zere votos de uma mensagem que já possui botões e perdeu o arquivo de dados.
+        if (message.components?.length) return 'Essa sugestão já tem botões, mas seus dados estão indisponíveis. Restaure o backup dos dados para preservar os votos.';
+        state = { guildId: interaction.guildId, channelId, votes: {} };
+        await save(messageId, state);
+      }
+      await message.edit({ components: voteRow(state.votes), allowedMentions: noPings });
+      return recovered
+        ? 'Botões restaurados. Não havia registro de votos salvo; a votação começa com zero votos.'
+        : 'Botões restaurados. Os votos e o status que estavam salvos foram preservados.';
+    });
+    await interaction.editReply({ content: result });
+  } catch (error) {
+    console.error('[Sugestões] Falha ao restaurar botões:', error.code || error.message);
+    await interaction.editReply({ content: 'Não consegui restaurar os botões. Confira o link, o acesso ao histórico do canal e o armazenamento do bot.' }).catch(() => {});
+  }
 }
 
 export async function handleSuggestionInteraction(interaction) {

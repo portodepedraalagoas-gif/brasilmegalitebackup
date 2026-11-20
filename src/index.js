@@ -1,4 +1,5 @@
 import * as sugestao from './commands/sugestao.js';
+import * as repararsugestao from './commands/repararsugestao.js';
 import { handleSuggestionInteraction } from './services/suggestions.js';
 import { startVIPRoleSync } from './services/mtaVIPRoles.js';
 import {
@@ -61,6 +62,7 @@ await startTranscriptWebServer();
 
 const commandModules = [
   sugestao,
+  repararsugestao,
   status,
   players,
   ip,
